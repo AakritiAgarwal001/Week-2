@@ -1,78 +1,103 @@
 import java.util.*;
 
 public class Questions {
-    // Trie Node representing each character in a search query
-    static class TrieNode {
-        Map<Character, TrieNode> children = new HashMap<>();
-        // Stores queries passing through this node and their frequencies
-        // In a production system, we'd store only the Top 10 here to meet the <50ms requirement
-        Map<String, Integer> counts = new HashMap<>();
-    }
+    // Enum to track the state of each parking spot
+    enum Status { EMPTY, OCCUPIED, DELETED }
 
-    private final TrieNode root = new TrieNode();
+    static class ParkingSpot {
+        String licensePlate;
+        long entryTime;
+        Status status;
 
-    /**
-     * Updates the frequency of a search query.
-     * If the query is new, it's added to the Trie.
-     */
-    public void updateFrequency(String query) {
-        TrieNode curr = root;
-        for (char c : query.toLowerCase().toCharArray()) {
-            curr = curr.children.computeIfAbsent(c, k -> new TrieNode());
-            // Record this query at every prefix level for $O(L)$ retrieval
-            curr.counts.put(query, curr.counts.getOrDefault(query, 0) + 1);
+        ParkingSpot() {
+            this.status = Status.EMPTY;
         }
     }
 
+    private final int CAPACITY = 500;
+    private ParkingSpot[] spots = new ParkingSpot[CAPACITY];
+    private int occupiedCount = 0;
+
+    public Questions() {
+        for (int i = 0; i < CAPACITY; i++) {
+            spots[i] = new ParkingSpot();
+        }
+    }
+
+    // Custom Hash Function based on license plate
+    private int hash(String licensePlate) {
+        return Math.abs(licensePlate.hashCode()) % CAPACITY;
+    }
+
     /**
-     * Returns top 10 suggestions for a given prefix.
-     * Time Complexity: O(L + K log K) where L is prefix length and K is unique queries at that prefix.
+     * Parks a vehicle using Linear Probing.
+     * Logic: If spot H is taken, try H+1, H+2, etc.
      */
-    public List<String> search(String prefix) {
-        TrieNode curr = root;
-        for (char c : prefix.toLowerCase().toCharArray()) {
-            if (!curr.children.containsKey(c)) {
-                return Collections.emptyList();
+    public String parkVehicle(String licensePlate) {
+        if (occupiedCount >= CAPACITY) return "Error: Lot Full";
+
+        int preferredSpot = hash(licensePlate);
+        int currentSpot = preferredSpot;
+        int probes = 0;
+
+        // Linear Probing: Find first non-occupied spot
+        while (spots[currentSpot].status == Status.OCCUPIED) {
+            currentSpot = (currentSpot + 1) % CAPACITY;
+            probes++;
+        }
+
+        spots[currentSpot].licensePlate = licensePlate;
+        spots[currentSpot].entryTime = System.currentTimeMillis();
+        spots[currentSpot].status = Status.OCCUPIED;
+        occupiedCount++;
+
+        return String.format("Assigned spot #%d (%d probes)", currentSpot, probes);
+    }
+
+    /**
+     * Frees a spot and calculates the fee.
+     */
+    public String exitVehicle(String licensePlate) {
+        int preferredSpot = hash(licensePlate);
+        int currentSpot = preferredSpot;
+        int initialSpot = currentSpot;
+
+        // Search for the vehicle
+        do {
+            if (spots[currentSpot].status == Status.EMPTY) break; // Optimization: stop at EMPTY
+
+            if (spots[currentSpot].status == Status.OCCUPIED &&
+                    spots[currentSpot].licensePlate.equals(licensePlate)) {
+
+                long durationMs = System.currentTimeMillis() - spots[currentSpot].entryTime;
+                double fee = (durationMs / 1000.0) * 5.0; // $5 per "second" for demo
+
+                spots[currentSpot].status = Status.DELETED; // Mark as deleted for probing integrity
+                occupiedCount--;
+                return String.format("Spot #%d freed. Fee: $%.2f", currentSpot, fee);
             }
-            curr = curr.children.get(c);
-        }
+            currentSpot = (currentSpot + 1) % CAPACITY;
+        } while (currentSpot != initialSpot);
 
-        // Use a PriorityQueue (Min-Heap) to find top 10 most frequent queries
-        PriorityQueue<Map.Entry<String, Integer>> minHeap = new PriorityQueue<>(
-                (a, b) -> a.getValue().equals(b.getValue())
-                        ? b.getKey().compareTo(a.getKey())
-                        : a.getValue() - b.getValue()
-        );
+        return "Vehicle not found.";
+    }
 
-        for (Map.Entry<String, Integer> entry : curr.counts.entrySet()) {
-            minHeap.offer(entry);
-            if (minHeap.size() > 10) {
-                minHeap.poll();
-            }
-        }
-
-        List<String> results = new ArrayList<>();
-        while (!minHeap.isEmpty()) {
-            results.add(0, minHeap.poll().getKey());
-        }
-        return results;
+    public void getStatistics() {
+        double occupancy = ((double) occupiedCount / CAPACITY) * 100;
+        System.out.printf("--- Parking Stats ---\nOccupancy: %.1f%%\nSpots Taken: %d/%d\n",
+                occupancy, occupiedCount, CAPACITY);
     }
 
     public static void main(String[] args) {
-        Questions autocomplete = new Questions();
+        Questions lot = new Questions();
 
-        // Simulate historical data
-        autocomplete.updateFrequency("java tutorial");
-        autocomplete.updateFrequency("java tutorial"); // Higher frequency
-        autocomplete.updateFrequency("javascript");
-        autocomplete.updateFrequency("java download");
-        autocomplete.updateFrequency("java 21 features");
+        // Simulate vehicles arriving
+        System.out.println(lot.parkVehicle("ABC-1234"));
+        System.out.println(lot.parkVehicle("ABC-1235")); // Likely collision depending on hash
+        System.out.println(lot.parkVehicle("XYZ-9999"));
 
-        // Test prefix search
-        System.out.println("Suggestions for 'jav':");
-        List<String> suggestions = autocomplete.search("jav");
-        for (int i = 0; i < suggestions.size(); i++) {
-            System.out.println((i + 1) + ". " + suggestions.get(i));
-        }
+        lot.getStatistics();
+
+        System.out.println(lot.exitVehicle("ABC-1234"));
     }
 }
