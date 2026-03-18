@@ -75,10 +75,7 @@ public class Questions {
                 new Transaction("4", 500.0, "Store A", System.currentTimeMillis(), "Acc_4") // Potential Duplicate
         );
 
-        // Task 1: Find pairs summing to 500
         System.out.println("Pairs summing to 500: " + engine.findTwoSum(dailyTxs, 500.0));
-
-        // Task 2: Detect duplicates
         engine.detectDuplicates(dailyTxs);
     }
 }
