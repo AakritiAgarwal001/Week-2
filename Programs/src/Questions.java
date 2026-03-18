@@ -1,71 +1,78 @@
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
 public class Questions {
-
-    // Helper class to represent a Token Bucket for each client
-    static class TokenBucket {
-        long tokens;
-        long lastRefillTime;
-        final long maxTokens;
-        final long refillRatePerMs; // Tokens per millisecond
-
-        public TokenBucket(long maxTokens, long refillIntervalSeconds) {
-            this.maxTokens = maxTokens;
-            this.tokens = maxTokens;
-            this.lastRefillTime = System.currentTimeMillis();
-            // Calculate rate: tokens per ms (e.g., 1000 tokens / 3600000 ms)
-            this.refillRatePerMs = maxTokens / (refillIntervalSeconds * 1000);
-        }
-
-        // Synchronized to handle concurrent requests for the same client
-        public synchronized boolean allowRequest() {
-            refill();
-            if (tokens > 0) {
-                tokens--;
-                return true;
-            }
-            return false;
-        }
-
-        private void refill() {
-            long now = System.currentTimeMillis();
-            long timePassed = now - lastRefillTime;
-            long refillAmount = timePassed * refillRatePerMs;
-
-            if (refillAmount > 0) {
-                tokens = Math.min(maxTokens, tokens + refillAmount);
-                lastRefillTime = now;
-            }
-        }
-
-        public long getTokens() { return tokens; }
+    // Trie Node representing each character in a search query
+    static class TrieNode {
+        Map<Character, TrieNode> children = new HashMap<>();
+        // Stores queries passing through this node and their frequencies
+        // In a production system, we'd store only the Top 10 here to meet the <50ms requirement
+        Map<String, Integer> counts = new HashMap<>();
     }
 
-    // Using ConcurrentHashMap for thread-safety across multiple clients
-    private Map<String, TokenBucket> clientLimits = new ConcurrentHashMap<>();
-    private final long HOURLY_LIMIT = 1000;
-    private final long HOUR_IN_SECONDS = 3600;
+    private final TrieNode root = new TrieNode();
 
-    public String checkRateLimit(String clientId) {
-        TokenBucket bucket = clientLimits.computeIfAbsent(clientId,
-                k -> new TokenBucket(HOURLY_LIMIT, HOUR_IN_SECONDS));
-
-        if (bucket.allowRequest()) {
-            return "Allowed (" + bucket.getTokens() + " requests remaining)";
-        } else {
-            return "Denied (0 requests remaining, retry later)";
+    /**
+     * Updates the frequency of a search query.
+     * If the query is new, it's added to the Trie.
+     */
+    public void updateFrequency(String query) {
+        TrieNode curr = root;
+        for (char c : query.toLowerCase().toCharArray()) {
+            curr = curr.children.computeIfAbsent(c, k -> new TrieNode());
+            // Record this query at every prefix level for $O(L)$ retrieval
+            curr.counts.put(query, curr.counts.getOrDefault(query, 0) + 1);
         }
+    }
+
+    /**
+     * Returns top 10 suggestions for a given prefix.
+     * Time Complexity: O(L + K log K) where L is prefix length and K is unique queries at that prefix.
+     */
+    public List<String> search(String prefix) {
+        TrieNode curr = root;
+        for (char c : prefix.toLowerCase().toCharArray()) {
+            if (!curr.children.containsKey(c)) {
+                return Collections.emptyList();
+            }
+            curr = curr.children.get(c);
+        }
+
+        // Use a PriorityQueue (Min-Heap) to find top 10 most frequent queries
+        PriorityQueue<Map.Entry<String, Integer>> minHeap = new PriorityQueue<>(
+                (a, b) -> a.getValue().equals(b.getValue())
+                        ? b.getKey().compareTo(a.getKey())
+                        : a.getValue() - b.getValue()
+        );
+
+        for (Map.Entry<String, Integer> entry : curr.counts.entrySet()) {
+            minHeap.offer(entry);
+            if (minHeap.size() > 10) {
+                minHeap.poll();
+            }
+        }
+
+        List<String> results = new ArrayList<>();
+        while (!minHeap.isEmpty()) {
+            results.add(0, minHeap.poll().getKey());
+        }
+        return results;
     }
 
     public static void main(String[] args) {
-        Questions system = new Questions();
-        String user = "abc123";
+        Questions autocomplete = new Questions();
 
-        // Simulate rapid requests
-        System.out.println(system.checkRateLimit(user));
-        System.out.println(system.checkRateLimit(user));
+        // Simulate historical data
+        autocomplete.updateFrequency("java tutorial");
+        autocomplete.updateFrequency("java tutorial"); // Higher frequency
+        autocomplete.updateFrequency("javascript");
+        autocomplete.updateFrequency("java download");
+        autocomplete.updateFrequency("java 21 features");
 
-        // In a real scenario, requests exceeding 1000/hr would return "Denied"
+        // Test prefix search
+        System.out.println("Suggestions for 'jav':");
+        List<String> suggestions = autocomplete.search("jav");
+        for (int i = 0; i < suggestions.size(); i++) {
+            System.out.println((i + 1) + ". " + suggestions.get(i));
+        }
     }
 }
